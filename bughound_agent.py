@@ -61,11 +61,13 @@ class BugHoundAgent:
         self._log("ANALYZE", "Using LLM analyzer.")
         system_prompt = (
             "You are BugHound, a code review assistant. "
-            "Return ONLY valid JSON. No markdown, no backticks."
+            "Your response must be ONLY a valid JSON array — no explanation, no prose, no markdown, no backticks. "
+            "If there are no issues, return an empty array: []"
         )
         user_prompt = (
-            "Analyze this Python code for potential issues. "
-            "Return a JSON array of issue objects with keys: type, severity, msg.\n\n"
+            "Analyze this Python code for potential issues.\n"
+            "Return ONLY a JSON array using this exact format (no other text):\n"
+            '[{"type": "Reliability", "severity": "High", "msg": "description of issue"}]\n\n'
             f"CODE:\n{code_snippet}"
         )
 
@@ -79,7 +81,9 @@ class BugHoundAgent:
         issues = self._parse_json_array_of_issues(raw)
 
         if issues is None:
-            self._log("ANALYZE", "LLM output was not parseable JSON. Falling back to heuristics.")
+            preview = raw[:120].replace("\n", "\\n") if raw else "(empty)"
+            self._log("ANALYZE", f"LLM output was not parseable JSON. Raw output preview: {preview!r}")
+            self._log("ANALYZE", "Falling back to heuristics.")
             return self._heuristic_analyze(code_snippet)
 
         return issues
@@ -114,8 +118,12 @@ class BugHoundAgent:
 
         cleaned = self._strip_code_fences(raw).strip()
 
-        if not cleaned:
-            self._log("ACT", "LLM returned empty output. Falling back to heuristic fixer.")
+        if not cleaned or cleaned.startswith("```"):
+            self._log("ACT", "LLM returned empty or unstrippable output. Falling back to heuristic fixer.")
+            return self._heuristic_fix(code_snippet, issues)
+
+        if "def " in code_snippet and "def " not in cleaned:
+            self._log("ACT", "LLM returned incomplete fix (missing function body). Falling back to heuristic fixer.")
             return self._heuristic_fix(code_snippet, issues)
 
         return cleaned
@@ -126,7 +134,11 @@ class BugHoundAgent:
     def _heuristic_analyze(self, code: str) -> List[Dict[str, str]]:
         issues: List[Dict[str, str]] = []
 
-        if "print(" in code:
+        non_comment_code = "\n".join(
+            line for line in code.splitlines()
+            if not line.strip().startswith("#")
+        )
+        if "print(" in non_comment_code:
             issues.append(
                 {
                     "type": "Code Quality",
@@ -172,10 +184,12 @@ class BugHoundAgent:
     # Parsing + utilities
     # ----------------------------
     def _parse_json_array_of_issues(self, text: str) -> Optional[List[Dict[str, str]]]:
-        text = text.strip()
+        text = self._strip_code_fences(text.strip())
         parsed = self._try_json_loads(text)
         if isinstance(parsed, list):
             return self._normalize_issues(parsed)
+        if isinstance(parsed, dict):
+            return self._normalize_issues([parsed])
 
         array_str = self._extract_first_json_array(text)
         if array_str:
@@ -221,7 +235,7 @@ class BugHoundAgent:
 
     def _strip_code_fences(self, text: str) -> str:
         text = text.strip()
-        match = re.search(r"```(?:python)?\s*(.*?)\s*```", text, flags=re.DOTALL | re.IGNORECASE)
+        match = re.search(r"```(?:\w+)?\s*(.*?)\s*```", text, flags=re.DOTALL | re.IGNORECASE)
         if match:
             return match.group(1)
         return text
