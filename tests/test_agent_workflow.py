@@ -38,6 +38,25 @@ def test_offline_mode_proposes_logging_fix_for_print():
     assert "logging.info(" in fixed
 
 
+def test_heuristic_does_not_flag_print_in_comment_lines():
+    """
+    print() appearing only in comment lines must not trigger a Code Quality issue.
+    Without the guardrail, the bare string check fires on comment content,
+    producing a false positive that auto-applies a fix that corrupts comments.
+    """
+    code = (
+        '# Old debug line: print("data")\n'
+        'def load(path):\n'
+        '    return open(path).read()\n'
+    )
+    agent = BugHoundAgent(client=None)
+    issues = agent._heuristic_analyze(code)
+    types = [i.get("type") for i in issues]
+    assert "Code Quality" not in types, (
+        "Heuristic should not flag print() that only appears in comment lines"
+    )
+
+
 def test_mock_client_forces_llm_fallback_to_heuristics_for_analysis():
     # MockClient returns non-JSON for analyzer prompts, so agent should fall back.
     agent = BugHoundAgent(client=MockClient())
