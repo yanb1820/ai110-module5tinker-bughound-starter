@@ -4,6 +4,10 @@ BugHound is a small, agent-style debugging tool. It analyzes a Python code snipp
 
 ---
 
+## TF Summary
+
+The core concept students needed to understand was that an AI agent is not just a single model call but a pipeline where each step can fail, and the system needs to handle those failures gracefully. Students most often struggled with the gap between what the LLM was asked to return and what it actually returned, because the model would respond in plain English instead of JSON even when the prompt said not to. AI was helpful for suggesting prompt improvements and explaining why a regex pattern would match content inside comments, but it was misleading when it proposed fixes that looked correct at a glance yet silently corrupted docstrings or comment text. To guide a student without giving the answer, ask them to read the agent trace carefully and find the step where the expected behavior and the actual behavior first diverge, then trace that value back to where it was produced in the code.
+
 ## What BugHound Does
 
 Given a short Python snippet, BugHound:
